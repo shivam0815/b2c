@@ -1,60 +1,71 @@
 // src/config/api.ts
-import axios from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
 
-/** Base URL
- * Prefer env; otherwise use a RELATIVE "/api" so it works on any domain.
- * (Avoid hardcoding a domain to dodge typos and CORS issues.)
- */
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL?.trim() || "/api";
+/* ============================================================================
+   Base URL
+   - Uses VITE_API_URL if present, otherwise a RELATIVE "/api" (works on any domain)
+   - We normalize trailing slashes so axios doesn’t produce double slashes.
+============================================================================ */
+const norm = (s?: string) => (s || "").replace(/\/+$/, "");
+const API_BASE_URL = norm(import.meta.env.VITE_API_URL) || "/api";
 
-/** One axios instance for the app */
+/* ============================================================================
+   Axios instance
+============================================================================ */
 const api = axios.create({
-  baseURL: API_BASE_URL,
-  // ❌ Do NOT set a global Content-Type; let axios infer it (JSON vs FormData)
+  baseURL: API_BASE_URL, // e.g. "https://nakodamobile.in/api" or "/api"
   withCredentials: true,
   timeout: 20000,
 });
 
-/* -------------------------- REQUEST INTERCEPTOR -------------------------- */
+// Small helper in case you ever want to set token after login without reload
+export const setAuthToken = (token?: string) => {
+  if (token) {
+    localStorage.setItem("nakoda-token", token);
+  } else {
+    localStorage.removeItem("nakoda-token");
+  }
+};
+
+/* ------------------------------- REQUEST ---------------------------------- */
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem("nakoda-token");
 
-    // Handle both relative and absolute urls
-    const url = (config.url || "").replace(config.baseURL || "", "");
-    const isPhoneAuth =
-      url.startsWith("/auth/phone/") || url.includes("/auth/phone/");
+    // Don’t force auth header on phone auth endpoints
+    const rawUrl = config.url || "";
+    const base = config.baseURL ? norm(config.baseURL) : "";
+    const url = base && rawUrl.startsWith(base) ? rawUrl.slice(base.length) : rawUrl;
+    const isPhoneAuth = url.startsWith("/auth/phone/") || url.includes("/auth/phone/");
 
     if (!isPhoneAuth && token) {
       config.headers = config.headers ?? {};
       (config.headers as any).Authorization = `Bearer ${token}`;
     }
+
+    // Don’t globally set Content-Type; axios infers JSON vs FormData automatically.
     return config;
   },
   (error) => Promise.reject(error)
 );
 
-/* -------------------------- RESPONSE INTERCEPTOR ------------------------- */
-const shouldSkip401Redirect = (config?: any): boolean => {
-  const url: string = config?.url || "";
-  if (url.includes("/support/tickets/my")) return true;
-  const p = config?.params || {};
+/* ------------------------------- RESPONSE --------------------------------- */
+const shouldSkip401Redirect = (config?: AxiosRequestConfig): boolean => {
+  const url: string = (config?.url as string) || "";
+  if (url.includes("/support/tickets/my")) return true; // public tokenless view
+  const p = (config?.params || {}) as Record<string, any>;
   if (String(p.skip401) === "1" || String(p.skipRedirect) === "1") return true;
   return false;
 };
 
 api.interceptors.response.use(
   (r) => r,
-  (error) => {
+  (error: AxiosError) => {
     const status = error?.response?.status;
-    if (status === 401 && !shouldSkip401Redirect(error.config)) {
-      localStorage.removeItem("nakoda-token");
+    if (status === 401 && !shouldSkip401Redirect(error.config as AxiosRequestConfig)) {
+      setAuthToken(undefined);
       localStorage.removeItem("nakoda-user");
-      if (
-        typeof window !== "undefined" &&
-        !window.location.pathname.startsWith("/login")
-      ) {
+      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
         window.location.href = "/login";
       }
     }
@@ -62,19 +73,116 @@ api.interceptors.response.use(
   }
 );
 
-/* ============================== RETURNS (user) ============================== */
-export const getMyReturns = () => api.get("/returns").then((r) => r.data);
+/* ============================================================================
+   Types
+============================================================================ */
+export type Product = {
+  _id: string;
+  name: string;
+  slug?: string;
+  price: number;
+  originalPrice?: number;
+  images?: string[];
+  imageUrl?: string;
+  rating?: number;
+  category?: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type Category = {
+  _id: string;
+  id?: string;
+  name: string;
+  slug?: string;
+  image?: string;
+  order?: number;
+  isActive?: boolean;
+};
+
+export type ReviewSummary = {
+  productId: string;
+  avg: number;
+  count: number;
+};
+
+export type Paginated<T> = {
+  success?: boolean;
+  items?: T[];
+  products?: T[];
+  total?: number;
+  page?: number;
+  limit?: number;
+};
+
+export type SortKey = "popular" | "trending" | "new" | "price_asc" | "price_desc";
+export interface ProductListParams {
+  page?: number;
+  limit?: number;
+  sort?: SortKey;
+  status?: "active" | "inactive";
+  category?: string;
+  q?: string;
+}
+
+/* ============================================================================
+   Helper: unwrap axios data
+============================================================================ */
+const data = <T>(p: Promise<{ data: T }>) => p.then((r) => r.data);
+
+/* ============================================================================
+   PRODUCTS
+============================================================================ */
+export const getProducts = (params?: ProductListParams) =>
+  data<Paginated<Product>>(api.get("/products", { params }));
+
+export const getProductByIdOrSlug = (idOrSlug: string) =>
+  data<{ success?: boolean; product: Product }>(api.get(`/products/${encodeURIComponent(idOrSlug)}`));
+
+export const getCategories = () =>
+  data<{ success?: boolean; categories?: Category[]; items?: Category[] }>(
+    api.get("/products/categories")
+  );
+
+export const getReviewSummary = (productId: string) =>
+  data<ReviewSummary>(api.get("/reviews/summary", { params: { productId } }));
+
+/* ============================================================================
+   NEWSLETTER
+============================================================================ */
+export const subscribeNewsletter = (email: string, tag = "default", source = "site") =>
+  data<{ success: boolean }>(
+    api.post("/newsletter/subscribe", { email, tag, source })
+  );
+
+/* ============================================================================
+   S3 UPLOAD UTILITIES (presign + delete)
+   Pairs with your /routes/uploads.s3.ts on the server
+============================================================================ */
+export const presignUpload = (file: File) => {
+  const params = {
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+  };
+  return data<{ uploadUrl: string; publicUrl: string; key: string }>(
+    api.get("/uploads/s3/sign", { params })
+  );
+};
+
+export const deleteS3Object = (url: string) =>
+  data<{ success?: boolean }>(api.delete("/uploads/s3", { params: { url } }));
+
+/* ============================================================================
+   RETURNS (user)
+============================================================================ */
+export const getMyReturns = () => data(api.get("/returns"));
 
 export const createReturn = (payload: {
   orderId: string;
   items: { productId: string; orderItemId?: string; quantity: number; reason?: string }[];
-  reasonType:
-    | "damaged"
-    | "wrong_item"
-    | "not_as_described"
-    | "defective"
-    | "no_longer_needed"
-    | "other";
+  reasonType: "damaged" | "wrong_item" | "not_as_described" | "defective" | "no_longer_needed" | "other";
   reasonNote?: string;
   images?: File[];
   pickupAddress?: any;
@@ -86,15 +194,15 @@ export const createReturn = (payload: {
   fd.append("items", JSON.stringify(payload.items));
   if (payload.pickupAddress) fd.append("pickupAddress", JSON.stringify(payload.pickupAddress));
   (payload.images || []).forEach((f) => fd.append("images", f));
-
-  // ✅ No headers override: axios will set multipart/form-data with boundary
-  return api.post("/returns", fd).then((r) => r.data);
+  return data(api.post("/returns", fd));
 };
 
 export const cancelMyReturn = (id: string) =>
-  api.patch(`/returns/${id}/cancel`, {}).then((r) => r.data);
+  data(api.patch(`/returns/${id}/cancel`, {}));
 
-/* ============================== SUPPORT (types) ============================= */
+/* ============================================================================
+   SUPPORT
+============================================================================ */
 export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 export type TicketPriority = "low" | "normal" | "high";
 
@@ -134,14 +242,13 @@ export interface SupportTicket {
   updatedAt?: string;
 }
 
-/* ============================== SUPPORT (calls) ============================= */
 export const getSupportConfig = () =>
-  api.get("/support/config").then((r) => r.data as { success: boolean; config: SupportConfig });
+  data<{ success: boolean; config: SupportConfig }>(api.get("/support/config"));
 
 export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
-  api.get("/support/faqs", { params }).then((r) => r.data as { success: boolean; faqs: SupportFaq[] });
+  data<{ success: boolean; faqs: SupportFaq[] }>(api.get("/support/faqs", { params }));
 
-export const createSupportTicket = async (payload: {
+export const createSupportTicket = (payload: {
   subject: string;
   message: string;
   email: string;
@@ -160,23 +267,30 @@ export const createSupportTicket = async (payload: {
   if (payload.category) form.append("category", payload.category);
   if (payload.priority) form.append("priority", payload.priority);
   (payload.attachments || []).forEach((f) => form.append("attachments", f));
-
-  // ✅ No Content-Type override here either
-  const { data } = await api.post("/support/tickets", form);
-  return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
+  return data<{ success: boolean; ticket: { _id: string; status: TicketStatus } }>(
+    api.post("/support/tickets", form)
+  );
 };
 
-// Public OTP endpoints (skip 401 redirects)
+// Public (skip 401 redirect)
 export const getMySupportTickets = () =>
-  api.get("/support/tickets/my", { params: { skip401: 1 } })
-     .then((r) => r.data as { success: boolean; tickets: SupportTicket[] });
+  data<{ success: boolean; tickets: SupportTicket[] }>(
+    api.get("/support/tickets/my", { params: { skip401: 1 } })
+  );
 
+/* ============================================================================
+   AUTH (Phone OTP)
+============================================================================ */
 export const sendPhoneOtp = (phone: string) =>
-  api.post("/auth/phone/send-otp", { phone }, { params: { skip401: 1 } })
-     .then((r) => r.data);
+  data(api.post("/auth/phone/send-otp", { phone }, { params: { skip401: 1 } }));
 
 export const verifyPhoneOtp = (phone: string, otp: string) =>
-  api.post("/auth/phone/verify", { phone, otp }, { params: { skip401: 1 } })
-     .then((r) => r.data);
+  data(api.post("/auth/phone/verify", { phone, otp }, { params: { skip401: 1 } }));
+
+/* ============================================================================
+   Misc
+============================================================================ */
+export const health = () => data(api.get("/health").catch(() => ({ data: { ok: false } })));
+export const getApiBase = () => API_BASE_URL;
 
 export default api;

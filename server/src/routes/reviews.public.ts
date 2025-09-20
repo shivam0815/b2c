@@ -7,68 +7,76 @@ import Review from "../models/Review";
 import Product from "../models/Product";
 
 const r = Router();
-const isMongoId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
 
 // ✅ 60s cache for summary results
 const reviewCache = new NodeCache({ stdTTL: 60, checkperiod: 120 });
 
-// Helpers
-const toObjectIdSafe = (id: string) => {
-  try {
-    return new mongoose.Types.ObjectId(id);
-  } catch {
-    return null;
-  }
+/* ------------------------------ helpers ------------------------------ */
+const setCacheHeaders = (res: Response) => {
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=30");
 };
 
+const toObjectId = (id: string) => new mongoose.Types.ObjectId(id);
+
+// When we approve/create (auto-publish) reviews, recompute product rating/count
 async function recomputeProductStats(productId: string) {
-  const match = { productId: new mongoose.Types.ObjectId(productId), status: "approved" };
+  const pid = toObjectId(productId);
   const [agg] = await Review.aggregate([
-    { $match: match as any },
+    { $match: { productId: pid, status: "approved" } },
     { $group: { _id: "$productId", count: { $sum: 1 }, avg: { $avg: "$rating" } } },
   ]);
-  const ratingsCount = agg?.count ?? 0;
-  const averageRating = agg?.avg ? Number(agg.avg.toFixed(2)) : 0;
+
+  const total = agg?.count ?? 0;
+  const avg = agg?.avg ? Math.round(agg.avg * 10) / 10 : 0;
+
+  // Update both naming styles for safety (your schema might use either)
   await Product.findByIdAndUpdate(
-    productId,
-    { $set: { ratingsCount, averageRating } },
+    pid,
+    { $set: { rating: avg, reviewsCount: total, averageRating: avg, ratingsCount: total } },
     { new: false }
   );
-  reviewCache.del(`review-summary:${productId}`); // bust cache
+
+  reviewCache.del(`review-summary:${productId}`);
 }
 
 /* -------------------------------------------------------------------------- */
-/* 📌 GET list reviews (approved, paginated)                                   */
+/* GET: list reviews (approved, paginated, typed & sorted)                     */
 /* -------------------------------------------------------------------------- */
-r.get(
+type ListParams = { productId: string };
+type ListQuery = { page?: string; limit?: string; sort?: "top" | "new" | "old" };
+
+r.get<ListParams, any, any, ListQuery>(
   "/products/:productId/reviews",
   param("productId").isMongoId(),
   query("page").optional().isInt({ min: 1 }),
   query("limit").optional().isInt({ min: 1, max: 50 }),
   query("sort").optional().isIn(["top", "new", "old"]),
-  async (req: Request, res: Response) => {
+  async (req: Request<ListParams, any, any, ListQuery>, res: Response) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
-    const idStr = req.params.productId;
+    const pid = toObjectId(req.params.productId);
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
-    const sort = (req.query.sort as string) || "new";
+    const sort = (req.query.sort as ListQuery["sort"]) || "new";
 
-    let sortOpt: Record<string, 1 | -1>;
-    if (sort === "top") sortOpt = { rating: -1, createdAt: -1 };
-    else if (sort === "old") sortOpt = { createdAt: 1 };
-    else sortOpt = { createdAt: -1 };
-
-    const match = { productId: new mongoose.Types.ObjectId(idStr), status: "approved" };
+    // ✅ Fix TS: constrain to 1 | -1 literals
+    type SortObj = Record<string, 1 | -1>;
+    const sortOpt: SortObj =
+      sort === "top"
+        ? { rating: -1, createdAt: -1 }
+        : sort === "old"
+        ? { createdAt: 1 }
+        : { createdAt: -1 };
 
     try {
+      const match = { productId: pid, status: "approved" as const };
       const [data, total] = await Promise.all([
         Review.find(match).sort(sortOpt).skip((page - 1) * limit).limit(limit).lean(),
         Review.countDocuments(match),
       ]);
+
+      setCacheHeaders(res);
       res.json({
         success: true,
         data,
@@ -82,52 +90,44 @@ r.get(
 );
 
 /* -------------------------------------------------------------------------- */
-/* 📌 POST create review                                                       */
+/* POST: create review                                                         */
 /* -------------------------------------------------------------------------- */
-r.post(
+type CreateParams = { productId: string };
+
+r.post<CreateParams>(
   "/products/:productId/reviews",
   param("productId").isMongoId(),
   body("rating").isInt({ min: 1, max: 5 }),
-  body("comment").isString().isLength({ min: 5 }),
-  body("title").optional().isString(),
+  body("comment").isString().isLength({ min: 5, max: 4000 }),
+  body("title").optional().isString().isLength({ max: 120 }),
   body("userName").optional().isString(),
   body("userEmail").optional().isEmail(),
-  async (req: Request, res: Response) => {
+  async (req: Request<CreateParams>, res: Response) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
     try {
-      const pidStr = req.params.productId;
-      const pid = toObjectIdSafe(pidStr);
-      if (!pid) {
-        return res.status(400).json({ success: false, message: "Invalid product id" });
-      }
-
-      const product = await Product.findById(pid).select("name").lean();
-      if (!product) {
-        return res.status(404).json({ success: false, message: "Product not found" });
-      }
+      const pid = toObjectId(req.params.productId);
+      const product = await Product.findById(pid).select("_id name").lean();
+      if (!product) return res.status(404).json({ success: false, message: "Product not found" });
 
       const autoPublish = String(process.env.AUTO_PUBLISH_REVIEWS || "").toLowerCase() === "true";
-      const uid = (req as any)?.user?._id;
+      const user = (req as any).user;
 
-      const doc: any = {
+      const created = await Review.create({
         productId: pid,
-        productName: product.name || undefined,
+        productName: product.name,
         rating: Number(req.body.rating),
-        title: (req.body.title || "").toString().trim() || undefined,
-        comment: (req.body.comment || "").toString().trim(),
+        title: String(req.body.title || "").trim() || undefined,
+        comment: String(req.body.comment || "").trim(),
         verified: false,
         status: autoPublish ? "approved" : "pending",
-        userName: (req as any)?.user?.name || req.body.userName,
-        userEmail: (req as any)?.user?.email || req.body.userEmail,
-      };
-      if (uid) doc.userId = uid;
+        userId: user?._id,
+        userName: user?.name || req.body.userName,
+        userEmail: user?.email || req.body.userEmail,
+      });
 
-      const created = await Review.create(doc);
-      if (autoPublish) await recomputeProductStats(pidStr);
+      if (autoPublish) await recomputeProductStats(String(pid));
 
       res.status(201).json({ success: true, data: created });
     } catch (err: any) {
@@ -138,97 +138,87 @@ r.post(
 );
 
 /* -------------------------------------------------------------------------- */
-/* 📌 PATCH approve review                                                     */
+/* PATCH: approve review (admin)                                               */
 /* -------------------------------------------------------------------------- */
-r.patch(
-  "/reviews/:id/approve",
-  param("id").isMongoId(),
-  async (req: Request, res: Response) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+type ApproveParams = { id: string };
 
-    try {
-      const doc = await Review.findByIdAndUpdate(
-        req.params.id,
-        { $set: { status: "approved" } },
-        { new: true }
-      ).lean();
-      if (!doc) {
-        return res.status(404).json({ success: false, message: "Review not found" });
-      }
-      await recomputeProductStats(String(doc.productId));
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("reviews.approve err", err);
-      res.status(500).json({ success: false, message: "Server error" });
-    }
+r.patch<ApproveParams>("/reviews/:id/approve", param("id").isMongoId(), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+  try {
+    const doc = await Review.findByIdAndUpdate(
+      req.params.id,
+      { $set: { status: "approved" } },
+      { new: true }
+    ).lean();
+    if (!doc) return res.status(404).json({ success: false, message: "Review not found" });
+
+    await recomputeProductStats(String(doc.productId));
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("reviews.approve err", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
-);
+});
 
 /* -------------------------------------------------------------------------- */
-/* 📌 POST mark review helpful                                                 */
+/* POST: mark helpful                                                          */
 /* -------------------------------------------------------------------------- */
-r.post(
-  "/reviews/:id/helpful",
-  param("id").isMongoId(),
-  async (req: Request, res: Response) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+type HelpfulParams = { id: string };
 
-    try {
-      await Review.findByIdAndUpdate(req.params.id, { $inc: { helpful: 1 } });
-      res.json({ success: true });
-    } catch (err: any) {
-      console.error("reviews.helpful err", err);
-      res.status(500).json({ success: false, message: "Server error" });
-    }
+r.post<HelpfulParams>("/reviews/:id/helpful", param("id").isMongoId(), async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
+
+  try {
+    await Review.findByIdAndUpdate(req.params.id, { $inc: { helpful: 1 } }, { upsert: false });
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("reviews.helpful err", err);
+    res.status(500).json({ success: false, message: "Server error" });
   }
-);
+});
 
 /* -------------------------------------------------------------------------- */
-/* 📌 GET Review Summary (Optimized with Cache)                                */
+/* GET: per-product summary (cached)                                           */
 /* -------------------------------------------------------------------------- */
-r.get(
+type SummaryQuery = { productId: string };
+
+r.get<any, any, any, SummaryQuery>(
   "/reviews/summary",
-  query("productId").custom(isMongoId as any),
-  async (req: Request, res: Response) => {
+  query("productId").isMongoId(),
+  async (req: Request<any, any, any, SummaryQuery>, res: Response) => {
     const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ success: false, errors: errors.array() });
-    }
+    if (!errors.isEmpty()) return res.status(400).json({ success: false, errors: errors.array() });
 
     try {
-      const { productId } = req.query as { productId: string };
-
+      const { productId } = req.query;
       const cacheKey = `review-summary:${productId}`;
       const cached = reviewCache.get(cacheKey);
       if (cached) {
+        setCacheHeaders(res);
         return res.json({ success: true, cached: true, data: cached });
       }
 
-      const pid = new mongoose.Types.ObjectId(productId);
-      const match = { productId: pid, status: "approved" };
-
-      const agg = await Review.aggregate([
-        { $match: match },
+      const pid = toObjectId(productId);
+      const [agg] = await Review.aggregate([
+        { $match: { productId: pid, status: "approved" } },
         { $group: { _id: "$productId", count: { $sum: 1 }, avg: { $avg: "$rating" } } },
       ]);
 
-      const count = agg?.[0]?.count ?? 0;
-      const avg = agg?.[0]?.avg ? Number(agg[0].avg.toFixed(2)) : 0;
+      const total = agg?.count ?? 0;
+      const avg = agg?.avg ? Math.round(agg.avg * 10) / 10 : 0;
 
-      await Product.findByIdAndUpdate(productId, {
-        $set: { ratingsCount: count, averageRating: avg },
+      await Product.findByIdAndUpdate(pid, {
+        $set: { rating: avg, reviewsCount: total, averageRating: avg, ratingsCount: total },
       }).lean();
 
-      const summary = { averageRating: avg, reviewCount: count };
+      const summary = { avg, total, averageRating: avg, reviewCount: total }; // both shapes
       reviewCache.set(cacheKey, summary);
 
-      return res.json({ success: true, cached: false, data: summary });
+      setCacheHeaders(res);
+      res.json({ success: true, cached: false, data: summary });
     } catch (err: any) {
       console.error("reviews.summary err", err);
       res.status(500).json({ success: false, message: "Server error" });
@@ -237,33 +227,33 @@ r.get(
 );
 
 /* -------------------------------------------------------------------------- */
-/* 📌 BULK Review Summaries (NEW ENDPOINT)                                    */
+/* POST: bulk summaries                                                        */
 /* -------------------------------------------------------------------------- */
 r.post("/reviews/bulk-summary", async (req: Request, res: Response) => {
   try {
-    const { productIds } = req.body as { productIds: string[] };
-    if (!Array.isArray(productIds) || productIds.length === 0) {
-      return res.status(400).json({ success: false, message: "productIds required" });
-    }
+    const body = (req.body || {}) as { productIds?: string[] };
+    const productIds = Array.isArray(body.productIds) ? body.productIds.slice(0, 300) : [];
 
-    const ids = productIds
-      .filter((id) => mongoose.isValidObjectId(id))
-      .map((id) => new mongoose.Types.ObjectId(id));
+    const ids = productIds.filter((id) => mongoose.isValidObjectId(id)).map(toObjectId);
+    if (!ids.length) {
+      setCacheHeaders(res);
+      return res.json({ success: true, data: {} });
+    }
 
     const agg = await Review.aggregate([
       { $match: { productId: { $in: ids }, status: "approved" } },
       { $group: { _id: "$productId", count: { $sum: 1 }, avg: { $avg: "$rating" } } },
     ]);
 
-    const summaries: Record<string, { averageRating: number; reviewCount: number }> = {};
+    const data: Record<string, { avg: number; total: number; averageRating: number; reviewCount: number }> = {};
     for (const a of agg) {
-      summaries[String(a._id)] = {
-        averageRating: a.avg ? Number(a.avg.toFixed(2)) : 0,
-        reviewCount: a.count || 0,
-      };
+      const avg = a.avg ? Math.round(a.avg * 10) / 10 : 0;
+      const total = a.count || 0;
+      data[String(a._id)] = { avg, total, averageRating: avg, reviewCount: total };
     }
 
-    return res.json({ success: true, data: summaries });
+    setCacheHeaders(res);
+    res.json({ success: true, data });
   } catch (err: any) {
     console.error("reviews.bulk-summary err", err);
     res.status(500).json({ success: false, message: "Server error" });

@@ -1,6 +1,7 @@
 // src/services/productService.ts
 import api from '../config/api';
 import { Product } from '../types';
+import { resolveImageUrl } from '../utils/imageUtils'; // ← S3/Cloudinary-aware
 
 export interface ProductsResponse {
   products: Product[];
@@ -35,6 +36,66 @@ const coerceNumber = (v: any): number | undefined => {
   return Number.isFinite(n) ? n : undefined;
 };
 
+// Accept URLs, S3 keys, or objects {url|secure_url}, return string URL or ''.
+const extractUrlLike = (x: any): string => {
+  if (!x) return '';
+  if (typeof x === 'string') return x;
+  if (typeof x === 'object') {
+    return (
+      x.secure_url ||
+      x.url ||
+      x.path ||
+      x.location || // some S3 libs
+      x.Location || // AWS SDK v2 putObject response
+      x.key ||      // if a raw key leaks through
+      ''
+    );
+  }
+  return '';
+};
+
+// Normalize imageUrl + images (handles S3 keys and Cloudinary URLs)
+function normalizeImages(p: any): { imageUrl?: string; images: string[] } {
+  // Gather possible arrays
+  const arrayCandidates: any[] =
+    (Array.isArray(p?.images) && p.images) ||
+    (Array.isArray(p?.gallery) && p.gallery) ||
+    (Array.isArray(p?.photos) && p.photos) ||
+    (Array.isArray(p?.pictures) && p.pictures) ||
+    [];
+
+  // Map to strings then resolve to absolute public URLs (S3 keys → public, Cloudinary URL → same)
+  const imagesResolved = arrayCandidates
+    .map(extractUrlLike)
+    .map((s) => resolveImageUrl(s))
+    .filter(Boolean) as string[];
+
+  // Pick a primary image: prefer explicit fields, else first of images[]
+  const primaryCandidates = [
+    p?.imageUrl,
+    p?.imageURL,
+    p?.image,
+    p?.thumbnail,
+    p?.cover,
+    p?.mainImage,
+    p?.s3Url,
+    p?.s3Key,
+    imagesResolved[0],
+  ];
+  const imageUrl = (primaryCandidates
+    .map(extractUrlLike)
+    .map((s) => resolveImageUrl(s))
+    .find(Boolean) || undefined) as string | undefined;
+
+  // Ensure primary is first in images (without duplicates)
+  const images =
+    imageUrl && imagesResolved.length
+      ? [imageUrl, ...imagesResolved.filter((u) => u !== imageUrl)]
+      : imagesResolved;
+
+  return { imageUrl, images };
+}
+
 function normalizeSpecifications(input: any): Record<string, any> {
   if (input == null) return {};
   if (typeof input === 'string') {
@@ -53,12 +114,7 @@ function normalizeSpecifications(input: any): Record<string, any> {
 }
 
 /**
- * The IMPORTANT part:
- * Standardize rating fields so UI always finds them.
- * - averageRating: number (0..5)
- * - rating:        number (alias of averageRating)
- * - ratingsCount:  number
- * - reviewCount / reviewsCount: same as ratingsCount (aliases)
+ * Standardize fields so UI always finds them.
  */
 function normalizeProduct(p: any): Product {
   const avg =
@@ -76,14 +132,19 @@ function normalizeProduct(p: any): Product {
     (Array.isArray(p?.reviews) ? p.reviews.length : undefined) ??
     0;
 
+  const { imageUrl, images } = normalizeImages(p);
+
   return {
     ...p,
     // normalized aggregates
     averageRating: avg,
-    rating: avg, // keep old UI happy
+    rating: avg,
     ratingsCount: count,
     reviewCount: count,
     reviewsCount: count,
+    // normalized images (S3 or Cloudinary)
+    imageUrl,
+    images,
     // normalized specs
     specifications: normalizeSpecifications(p?.specifications),
   } as Product;
@@ -150,7 +211,6 @@ function normalizeProductsResponse(data: any): ProductsResponse {
 
 /* ---------- tiny in-memory cache (per-tab) ---------- */
 const memCache = new Map<string, { data: ProductsResponse; ts: number }>();
-// Feel free to shorten while testing; set back to 60_000 later
 const MC_TTL = 15_000;
 
 const keyOf = (path: string, params?: Record<string, any>) =>
@@ -177,8 +237,6 @@ export const productService = {
       };
 
       const urlKey = keyOf('/products', params);
-
-      // respect global refresh flag you already set elsewhere
       const mustRefresh = forceRefresh || this.shouldRefresh();
 
       if (!mustRefresh) {
@@ -192,7 +250,6 @@ export const productService = {
       memCache.set(urlKey, { data: normalized, ts: Date.now() });
       localStorage.setItem('products-cache', JSON.stringify({ data: normalized, timestamp: Date.now() }));
 
-     
       return normalized;
     } catch (error) {
       console.error('❌ Failed to fetch products:', error);

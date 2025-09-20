@@ -10,49 +10,6 @@ import Product from "../models/Product";
 /* ────────────────────────────────────────────────────────────── */
 const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per user 10s
 
-/** ──────────────────────────────────────────────────────────────
- *  Global hard cap: no single cart line can exceed this quantity
- *  ────────────────────────────────────────────────────────────── */
-const MAX_ORDER_QTY = 500;
-
-/** Category-wise Minimum Order Quantity (MOQ) */
-const CATEGORY_MOQ: Record<string, number> = {
-  "Car Chargers": 50,
-  "Bluetooth Neckbands": 50,
-  TWS: 50,
-  "Data Cables": 50,
-  "Mobile Chargers": 50,
-  "Bluetooth Speakers": 50,
-  "Power Banks": 50,
-  "Mobile ICs": 50,
-  "Mobile Repairing Tools": 50,
-  Electronics: 50,
-  Accessories: 50,
-  Others: 50,
-};
-
-/** Determine the effective MOQ for a product */
-const getEffectiveMOQ = (product: any): number => {
-  const pMOQ =
-    typeof product?.minOrderQty === "number" && product.minOrderQty > 0
-      ? product.minOrderQty
-      : undefined;
-  if (typeof pMOQ === "number") return pMOQ;
-
-  const byCategory = CATEGORY_MOQ[product?.category || ""];
-  return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
-};
-
-/** Clamp helper: enforces [MOQ … min(stock, MAX_ORDER_QTY)] silently */
-const clampQty = (desired: number, product: any): number => {
-  const moq = getEffectiveMOQ(product);
-  const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
-  const maxCap = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  const want = Math.max(1, Number(desired || 0));
-  if (maxCap <= 0) return 0;
-  return Math.max(moq, Math.min(want, maxCap));
-};
-
 interface AuthenticatedUser {
   id: string;
   role: string;
@@ -90,7 +47,7 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 /* ────────────────────────────────────────────────────────────── */
-/* ADD TO CART                                                    */
+/* ADD TO CART (no MOQ / no max per line, only stock cap)        */
 /* ────────────────────────────────────────────────────────────── */
 export const addToCart = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -119,10 +76,11 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (product.stockQuantity < 1) {
+    const stock = Math.max(0, Number(product.stockQuantity ?? 0));
+    if (stock < 1) {
       res.status(400).json({
         message: "Insufficient stock",
-        available: product.stockQuantity,
+        available: stock,
         requested: Number(quantity) || 1,
       });
       return;
@@ -131,47 +89,52 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     let cart = await Cart.findOne({ userId: user.id });
 
     if (!cart) {
-      const clamped = clampQty(Number(quantity) || 1, product);
-      if (clamped < 1) {
+      const desired = Math.max(1, Number(quantity) || 1);
+      const allowed = Math.min(desired, stock);
+      if (allowed < 1) {
         res.status(400).json({
           message: "Insufficient stock",
-          available: product.stockQuantity,
-          requested: Number(quantity) || 1,
+          available: stock,
+          requested: desired,
         });
         return;
       }
       cart = new Cart({
         userId: user.id,
-        items: [{ productId: product._id, quantity: clamped, price: product.price }],
+        items: [{ productId: product._id, quantity: allowed, price: product.price }],
       });
     } else {
       const existingItemIndex = cart.items.findIndex(
         (item) => item.productId.toString() === product._id.toString()
       );
+
       if (existingItemIndex > -1) {
-        const desired = cart.items[existingItemIndex].quantity + Number(quantity || 0);
-        const clamped = clampQty(desired, product);
-        if (clamped < 1) {
+        const currentQty = Number(cart.items[existingItemIndex].quantity || 0);
+        const desired = currentQty + Math.max(1, Number(quantity) || 1);
+        const allowed = Math.min(desired, stock);
+
+        if (allowed === currentQty) {
           res.status(400).json({
             message: "Cannot add more items - insufficient stock",
-            available: product.stockQuantity,
-            currentInCart: cart.items[existingItemIndex].quantity,
+            available: stock,
+            currentInCart: currentQty,
           });
           return;
         }
-        cart.items[existingItemIndex].quantity = clamped;
+        cart.items[existingItemIndex].quantity = allowed;
         cart.items[existingItemIndex].price = product.price;
       } else {
-        const clamped = clampQty(Number(quantity) || 1, product);
-        if (clamped < 1) {
+        const desired = Math.max(1, Number(quantity) || 1);
+        const allowed = Math.min(desired, stock);
+        if (allowed < 1) {
           res.status(400).json({
             message: "Insufficient stock",
-            available: product.stockQuantity,
-            requested: Number(quantity) || 1,
+            available: stock,
+            requested: desired,
           });
           return;
         }
-        cart.items.push({ productId: product._id, quantity: clamped, price: product.price });
+        cart.items.push({ productId: product._id, quantity: allowed, price: product.price });
       }
     }
 
@@ -188,17 +151,14 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 };
 
 /* ────────────────────────────────────────────────────────────── */
-/* UPDATE CART ITEM                                               */
+/* UPDATE CART ITEM (no MOQ / no max, only stock cap)            */
 /* ────────────────────────────────────────────────────────────── */
 export const updateCartItem = async (req: Request, res: Response): Promise<void> => {
   try {
     const { productId, quantity } = req.body;
     const user = req.user as AuthenticatedUser;
 
-    if (Number(quantity) < 1) {
-      res.status(400).json({ message: "Quantity must be at least 1" });
-      return;
-    }
+    const desired = Math.max(1, Number(quantity) || 1);
 
     const cart = await Cart.findOne({ userId: user?.id });
     if (!cart) {
@@ -219,18 +179,16 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
       res.status(404).json({ message: "Product not found or unavailable" });
       return;
     }
-    if (product.stockQuantity < 1) {
+
+    const stock = Math.max(0, Number(product.stockQuantity ?? 0));
+    if (stock < 1) {
       res.status(400).json({ message: "Insufficient stock" });
       return;
     }
 
-    const clamped = clampQty(Number(quantity) || 1, product);
-    if (clamped < 1) {
-      res.status(400).json({ message: "Insufficient stock" });
-      return;
-    }
+    const allowed = Math.min(desired, stock);
 
-    cart.items[itemIndex].quantity = clamped;
+    cart.items[itemIndex].quantity = allowed;
     cart.items[itemIndex].price = product.price;
 
     await cart.save();

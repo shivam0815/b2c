@@ -395,7 +395,7 @@ if (!isProd) {
         exists,
         fileCount: files.length,
         sampleFiles: files.slice(0, 10),
-        testUrls: files.slice(0, 3).map((f) => `https://nakodamobile.in/uploads/${f}`)
+        testUrls: files.slice(0, 3).map((f) => `http://localhost:5000/uploads/${f}`)
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message, uploadsDirectory: uploadsDir });
@@ -602,7 +602,7 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ================================');
   console.log('🚀 Nakoda Mobile API Server Started');
   console.log('🚀 ================================');
-  console.log(`📡 Server bind: 0.0.0.0:${PORT}`);
+  console.log(`📡 Server bind: 0.0.0.0:${PORT}`)
   console.log(`🌍 Environment: ${NODE_ENV}`);
   console.log(`⏰ Started at: ${new Date().toISOString()}`);
 

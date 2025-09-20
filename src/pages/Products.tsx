@@ -1,11 +1,13 @@
+// src/pages/Products.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Grid, List, Search } from 'lucide-react';
-import ProductCard from '../components/UI/ProductCard';
+import ProductCard from '../components/UI/ProductCard'; // ← adjust if yours is under /components/UI/
 import api from '../config/api';
 import { productService } from '../services/productService';
 import type { Product } from '../types';
 import SEO from '../components/Layout/SEO';
+
 /* ---------- helpers ---------- */
 const isValidObjectId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
 const getId = (p: any): string | undefined => p?._id || p?.id;
@@ -25,18 +27,17 @@ const Products: React.FC = () => {
   // Categories: try API, fall back to static
   const [categories, setCategories] = useState<string[]>([
     'Car Chargers',
-  'Bluetooth Neckbands',
-  'TWS',
-  'Data Cables',
-  'Mobile Chargers',
-  'Bluetooth Speakers',
-  'Power Banks',
-  'Integrated Circuits & Chips',
-  'Mobile Repairing Tools',
-  'Electronics',
-  'Accessories',
-  'Others'
-
+    'Bluetooth Neckbands',
+    'TWS',
+    'Data Cables',
+    'Mobile Chargers',
+    'Bluetooth Speakers',
+    'Power Banks',
+    'Integrated Circuits & Chips',
+    'Mobile Repairing Tools',
+    'Electronics',
+    'Accessories',
+    'Others',
   ]);
 
   // Fetch categories (non-blocking, best-effort)
@@ -45,17 +46,15 @@ const Products: React.FC = () => {
     (async () => {
       try {
         const r = await productService.getCategories();
-        const arr =
-          (Array.isArray((r as any)?.categories) && (r as any).categories) ||
-          [];
-        if (!cancelled && arr.length) {
-          setCategories(arr.filter(Boolean));
-        }
+        const arr = (Array.isArray((r as any)?.categories) && (r as any).categories) || [];
+        if (!cancelled && arr.length) setCategories(arr.filter(Boolean));
       } catch {
         // ignore; keep static
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Fetch products (supports force refresh)
@@ -161,9 +160,7 @@ const Products: React.FC = () => {
 
         const priceVal = typeof p?.price === 'number' ? p.price : Number.NaN;
         const priceOk =
-          Number.isFinite(priceVal) &&
-          priceVal >= priceRange[0] &&
-          priceVal <= priceRange[1];
+          Number.isFinite(priceVal) && priceVal >= priceRange[0] && priceVal <= priceRange[1];
 
         const isActive = p?.isActive !== false; // default true if missing
 
@@ -217,24 +214,26 @@ const Products: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-<SEO
-  title="Shop Products"
-  description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
-  canonicalPath="/products"
-  jsonLd={{
-    '@context': 'https://schema.org',
-    '@type': 'CollectionPage',
-    name: 'Products',
-    url: 'https://nakodamobile.in/products'
-  }}
-/>
+      <SEO
+        title="Shop Products"
+        description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
+        canonicalPath="/products"
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: 'Products',
+          url: 'https://nakodamobile.in/products',
+        }}
+      />
 
       {/* Hero */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h1 className="text-4xl md:text-6xl font-bold mb-4">Premium Tech Accessories</h1>
-            <p className="text-xl md:text-2xl mb-8">Discover our curated collection of high-quality products</p>
+            <p className="text-xl md:text-2xl mb-8">
+              Discover our curated collection of high-quality products
+            </p>
             <div className="max-w-md mx-auto">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-200" />
@@ -368,7 +367,6 @@ const Products: React.FC = () => {
           >
             {filteredProducts.map((product, i) => {
               const pid = getId(product);
-              // robust key: prefer real id, else fall back to name+index
               const key = pid || `${product.name || 'item'}-${i}`;
               return (
                 <motion.div

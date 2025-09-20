@@ -1,6 +1,5 @@
 // src/controllers/orderController.ts
-// COMPLETE VERSION — Email automation + MAX(50) & MOQ clamping + GST mapping
-// Stock is decremented during CREATE; updateOrderStatus does NOT deduct again.
+// B2C VERSION — No MOQ / No per-line max; stock-only clamping + GST mapping
 
 import { Request, Response } from "express";
 import mongoose from "mongoose";
@@ -18,58 +17,17 @@ interface AuthenticatedUser {
   name?: string;
 }
 
-/* ───────────────── Business Rules: MAX & MOQ ───────────────── */
-
-const MAX_ORDER_QTY = 500;
-
-const CATEGORY_MOQ: Record<string, number> = {
-  "Car Chargers": 50,
-  "Bluetooth Neckbands": 50,
-  "TWS": 30,
-  "Data Cables": 50,
-  "Mobile Chargers": 20,
-  "Bluetooth Speakers": 20,
-  "Power Banks": 20,
-  "Integrated Circuits & Chips": 50,
-  "Mobile Repairing Tools": 50,
-  Electronics: 50,
-  Accessories: 50,
-  Others: 50,
-};
-
-const getEffectiveMOQ = (product: any): number => {
-  const pMOQ =
-    typeof product?.minOrderQty === "number" && product.minOrderQty > 0
-      ? product.minOrderQty
-      : undefined;
-  if (typeof pMOQ === "number") return pMOQ;
-
-  const byCategory = CATEGORY_MOQ[product?.category || ""];
-  return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
-};
-
-/** Clamp helper: enforces [MOQ … min(stock, MAX_ORDER_QTY)] silently */
-const clampQty = (desired: number, product: any): number => {
-  const moq = getEffectiveMOQ(product);
-  const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
-  const maxCap = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  const want = Math.max(1, Number(desired || 0));
-  if (maxCap <= 0) return 0;
-  return Math.max(moq, Math.min(want, maxCap));
-};
-
 /* ───────────────── Small helpers ───────────────── */
 
 const cleanGstin = (s?: any) =>
   (s ?? "").toString().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
 
-/* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
+/* ───────────────── CREATE ORDER (stock deduction, GST & emails) ───────────────── */
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-   
     const { shippingAddress, paymentMethod, billingAddress, extras, pricing } = req.body;
-        
+
     if (!req.user) {
       res.status(401).json({ message: "User not authenticated" });
       return;
@@ -95,7 +53,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     let subtotal = 0;
 
-    // Build items with SILENT clamping
+    // Build items with stock-only clamping (B2C: no MOQ, no max per line)
     for (const cartItem of cart.items) {
       const product = cartItem.productId as any;
 
@@ -106,8 +64,18 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         return;
       }
 
-      const clampedQty = clampQty(cartItem.quantity, product);
-      if (clampedQty < 1) {
+      const stock = Math.max(0, Number(product.stockQuantity ?? 0));
+      const desired = Math.max(1, Number(cartItem.quantity) || 1);
+
+      if (stock < 1) {
+        res.status(400).json({
+          message: `Insufficient stock for ${product?.name || "item"}.`,
+        });
+        return;
+      }
+
+      const qty = Math.min(desired, stock);
+      if (qty < 1) {
         res.status(400).json({
           message: `Insufficient stock for ${product?.name || "item"}.`,
         });
@@ -118,23 +86,23 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         productId: product._id,
         name: product.name,
         price: cartItem.price,
-        quantity: clampedQty,
+        quantity: qty,
         image: product.images?.[0] || "",
       });
 
-      subtotal += cartItem.price * clampedQty;
+      subtotal += cartItem.price * qty;
     }
 
-    // Pricing (server-side). You can switch to your own rules as needed.
-    const shipping = subtotal > 500 ? 0 : 50;                 // free above ₹500
-    const tax = Math.round(subtotal * 0.18);                  // 18% GST rounded
+    // Pricing (server-side). Adjust as needed.
+    const shipping = subtotal > 500 ? 0 : 50; // free above ₹500
+    const tax = Math.round(subtotal * 0.18);  // 18% GST rounded
     const total = subtotal + shipping + tax;
 
     // IDs
     const orderNumber = `NK${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const paymentOrderId = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-    // Build GST block from extras + computed values
+    // GST block
     const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
 
     // Create and save
@@ -153,15 +121,13 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       status: "pending",
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
-
-      // ⬇️ persist GST & customer note if sent from checkout
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
     });
 
     const savedOrder = await order.save();
 
-    // REAL-TIME STOCK DEDUCTION (based on SAVED ORDER ITEMS to match persisted quantities)
+    // REAL-TIME STOCK DEDUCTION (based on persisted quantities)
     try {
       for (const item of savedOrder.items) {
         const updated = await Product.findOneAndUpdate(
@@ -175,7 +141,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         }
       }
     } catch (stockError) {
-      // Rollback order if stock deduction fails
       await Order.findByIdAndDelete(savedOrder._id);
       res.status(409).json({ message: "Stock changed. Please try again." });
       return;
@@ -254,7 +219,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         orderStatus: savedOrder.orderStatus,
         paymentStatus: savedOrder.paymentStatus,
         items: orderItems,
-        gst: savedOrder.gst,                 // ⬅️ return gst for client/debug
+        gst: savedOrder.gst,
         emailStatus: emailResults,
       },
     });
@@ -742,8 +707,7 @@ export const trackOrder = async (req: Request, res: Response): Promise<void> => 
         status: "Order Confirmed",
         date: (order as any).paidAt,
         completed: !!(order as any).paidAt,
-        description:
-          "Your order has been confirmed and is being processed",
+        description: "Your order has been confirmed and is being processed",
       },
       {
         status: "Shipped",
@@ -871,7 +835,6 @@ function buildGstBlock(
 ) {
   const ex = payload?.extras || {};
 
-  // accept many variants including nested extras.gst.*
   const rawGstin =
     ex.gstin ??
     ex.gstNumber ??

@@ -1,16 +1,20 @@
-// backend/src/controllers/reviewController.ts
 import { Request, Response } from "express";
 import mongoose from "mongoose";
 import Review from "../models/Review";
 import Product from "../models/Product";
 import NodeCache from "node-cache";
 
-const AUTO_APPROVE_REVIEWS = false; // set true if you want instant visibility
-const reviewCache = new NodeCache({ stdTTL: 60, checkperiod: 120 }); // cache for 1 minute
+const AUTO_APPROVE_REVIEWS = process.env.AUTO_APPROVE_REVIEWS === "true";
+const reviewCache = new NodeCache({ stdTTL: 60, checkperiod: 120 }); // 60s
 
 /* ----------------------------- Helpers ----------------------------- */
 const toObjectId = (id: string | mongoose.Types.ObjectId) =>
   typeof id === "string" ? new mongoose.Types.ObjectId(id) : id;
+
+const setCacheHeaders = (res: Response) => {
+  // browser/CDN can cache; client may re-use for 60s and serve stale for 30s
+  res.setHeader("Cache-Control", "public, max-age=60, stale-while-revalidate=30");
+};
 
 const recalcProductRating = async (productId: mongoose.Types.ObjectId | string) => {
   const pid = toObjectId(productId);
@@ -27,17 +31,16 @@ const recalcProductRating = async (productId: mongoose.Types.ObjectId | string) 
     reviewsCount: count,
   });
 
-  // Bust cache for this product
-  reviewCache.del(`review-summary:${pid}`);
+  // bust per-product caches
+  reviewCache.del(`review-summary:${pid.toString()}`);
 };
 
 /* ----------------------------- Endpoints ----------------------------- */
 
-// 📌 Paginated list of reviews + distribution
+// GET /api/reviews?productId=...&page=&limit=
 export const listReviews = async (req: Request, res: Response) => {
   try {
     const { productId, page = 1, limit = 10 } = req.query as any;
-
     if (!productId || !mongoose.isValidObjectId(String(productId))) {
       return res.status(400).json({ success: false, message: "productId required" });
     }
@@ -55,16 +58,12 @@ export const listReviews = async (req: Request, res: Response) => {
       Review.aggregate([{ $match: match }, { $group: { _id: "$rating", count: { $sum: 1 } } }]),
     ]);
 
-    const distribution: Record<"1" | "2" | "3" | "4" | "5", number> = {
-      "1": 0,
-      "2": 0,
-      "3": 0,
-      "4": 0,
-      "5": 0,
-    };
+    const distribution: Record<"1" | "2" | "3" | "4" | "5", number> =
+      { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
     for (const s of summary)
       distribution[String(s._id) as keyof typeof distribution] = s.count;
 
+    setCacheHeaders(res);
     res.json({
       success: true,
       reviews: items,
@@ -77,11 +76,10 @@ export const listReviews = async (req: Request, res: Response) => {
   }
 };
 
-// 📌 Optimized summary endpoint with caching
+// GET /api/reviews/summary?productId=...
 export const getReviewSummary = async (req: Request, res: Response) => {
   try {
     const { productId } = req.query as { productId: string };
-
     if (!productId || !mongoose.isValidObjectId(productId)) {
       return res.status(400).json({ success: false, message: "Valid productId required" });
     }
@@ -89,6 +87,7 @@ export const getReviewSummary = async (req: Request, res: Response) => {
     const cacheKey = `review-summary:${productId}`;
     const cached = reviewCache.get(cacheKey);
     if (cached) {
+      setCacheHeaders(res);
       return res.json({ success: true, cached: true, ...cached });
     }
 
@@ -98,13 +97,8 @@ export const getReviewSummary = async (req: Request, res: Response) => {
       { $group: { _id: "$rating", count: { $sum: 1 } } },
     ]);
 
-    const distribution: Record<"1" | "2" | "3" | "4" | "5", number> = {
-      "1": 0,
-      "2": 0,
-      "3": 0,
-      "4": 0,
-      "5": 0,
-    };
+    const distribution: Record<"1" | "2" | "3" | "4" | "5", number> =
+      { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0 };
     for (const s of agg)
       distribution[String(s._id) as keyof typeof distribution] = s.count;
 
@@ -117,19 +111,17 @@ export const getReviewSummary = async (req: Request, res: Response) => {
       : 0;
 
     const summary = { distribution, total, avg: Math.round(avg * 10) / 10 };
+    reviewCache.set(cacheKey, summary);
 
-    reviewCache.set(cacheKey, summary); // cache it
-
+    setCacheHeaders(res);
     return res.json({ success: true, cached: false, ...summary });
   } catch (e: any) {
     console.error("❌ getReviewSummary error:", e);
-    return res
-      .status(500)
-      .json({ success: false, message: e.message || "Failed to get summary" });
+    return res.status(500).json({ success: false, message: e.message || "Failed to get summary" });
   }
 };
 
-// 📌 Bulk review summaries (for many products in one request)
+// POST /api/reviews/summary/bulk  { productIds: string[] }
 export const getBulkReviewSummaries = async (req: Request, res: Response) => {
   try {
     const { productIds } = req.body as { productIds: string[] };
@@ -140,6 +132,10 @@ export const getBulkReviewSummaries = async (req: Request, res: Response) => {
     const ids = productIds
       .filter((id) => mongoose.isValidObjectId(id))
       .map((id) => new mongoose.Types.ObjectId(id));
+
+    if (!ids.length) {
+      return res.json({ success: true, data: {} });
+    }
 
     const agg = await Review.aggregate([
       { $match: { productId: { $in: ids }, status: "approved" } },
@@ -154,6 +150,7 @@ export const getBulkReviewSummaries = async (req: Request, res: Response) => {
       };
     }
 
+    setCacheHeaders(res);
     return res.json({ success: true, data: summaries });
   } catch (e: any) {
     console.error("❌ getBulkReviewSummaries error:", e);
@@ -161,7 +158,7 @@ export const getBulkReviewSummaries = async (req: Request, res: Response) => {
   }
 };
 
-// 📌 Create a new review
+// POST /api/reviews
 export const createReview = async (req: Request, res: Response) => {
   try {
     const body = (req.body ?? {}) as any;
@@ -175,21 +172,17 @@ export const createReview = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "rating must be 1..5" });
     }
 
-    // Hygiene limits
+    // hygiene
     title = String(title || "").trim().slice(0, 120);
     comment = String(comment || "").trim();
     if (comment.length < 5) {
-      return res
-        .status(400)
-        .json({ success: false, message: "comment is too short" });
+      return res.status(400).json({ success: false, message: "comment is too short" });
     }
     if (comment.length > 4000) {
-      return res
-        .status(400)
-        .json({ success: false, message: "comment too long (max 4000 chars)" });
+      return res.status(400).json({ success: false, message: "comment too long (max 4000 chars)" });
     }
 
-    const user = (req as any).user; // from auth middleware
+    const user = (req as any).user; // optional if route open
     const status: "pending" | "approved" = AUTO_APPROVE_REVIEWS ? "approved" : "pending";
 
     const doc = await Review.create({
@@ -204,31 +197,20 @@ export const createReview = async (req: Request, res: Response) => {
       verified: false,
     });
 
-    if (status === "approved") {
-      await recalcProductRating(productId);
-    }
+    if (status === "approved") await recalcProductRating(productId);
 
     return res.status(201).json({
       success: true,
-      message:
-        status === "approved" ? "Review published" : "Review submitted for approval",
+      message: status === "approved" ? "Review published" : "Review submitted for approval",
       review: doc,
     });
   } catch (e: any) {
     console.error("❌ createReview error:", e);
-    return res
-      .status(500)
-      .json({ success: false, message: e.message || "Failed to create review" });
+    return res.status(500).json({ success: false, message: e.message || "Failed to create review" });
   }
 };
 
-// 📌 Recompute product rating when admin changes review status
-export const recomputeOnStatusChange = async (reviewId: string) => {
-  const r = await Review.findById(reviewId).lean();
-  if (r?.productId) await recalcProductRating(r.productId);
-};
-
-// 📌 Admin: set review status
+// PATCH /api/reviews/:id/status   (admin)
 export const adminSetReviewStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -237,17 +219,12 @@ export const adminSetReviewStatus = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, message: "Invalid review id" });
     }
     const review = await Review.findByIdAndUpdate(id, { status }, { new: true });
-    if (!review)
-      return res
-        .status(404)
-        .json({ success: false, message: "Review not found" });
+    if (!review) return res.status(404).json({ success: false, message: "Review not found" });
 
     await recalcProductRating(review.productId);
     res.json({ success: true, review });
   } catch (e: any) {
     console.error("❌ adminSetReviewStatus error:", e);
-    res
-      .status(500)
-      .json({ success: false, message: e.message || "Failed to update status" });
+    res.status(500).json({ success: false, message: e.message || "Failed to update status" });
   }
 };

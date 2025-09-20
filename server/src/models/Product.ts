@@ -1,4 +1,4 @@
-// src/models/Product.ts
+// src/models/Product.ts (B2C)
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IProduct extends Document {
@@ -27,7 +27,7 @@ export interface IProduct extends Document {
   ratingsCount?: number;
   compareAtPrice?: number | null;
 
-  // 🆕 new fields
+  // optional product details (kept for B2C too)
   sku?: string;
   color?: string;
   ports?: number;
@@ -35,33 +35,11 @@ export interface IProduct extends Document {
   warrantyType?: 'Manufacturer' | 'Seller' | 'No Warranty';
   manufacturingDetails?: Record<string, any>;
 
-  // admin-only
+  // admin-only (kept, hidden by default)
   gst?: number;
   hsnCode?: string;
   netWeight?: number;
-
-  // 🆕 MOQ accessors
-  minOrderQtyOverride?: number | null; // optional per-product override
-  // NOTE: minOrderQty is provided as a virtual (getter only)
-  // @ts-ignore
-  minOrderQty?: number;
 }
-
-/** 🆕 single source of truth for category-wise MOQ */
-export const CATEGORY_MOQ: Record<string, number> = {
-  'Car Chargers': 50,
-  'Bluetooth Neckbands': 50,
-  'TWS': 50,
-  'Data Cables': 50,
-  'Mobile Chargers': 50,
-  'Integrated Circuits & Chips': 50,
-  'Mobile Repairing Tools': 50,
-  'Electronics': 50,
-  'Accessories': 50,
-  'Bluetooth Speakers': 50,
-  'Power Banks': 50,
-  'Others': 50,
-};
 
 const productSchema = new Schema<IProduct>(
   {
@@ -69,12 +47,12 @@ const productSchema = new Schema<IProduct>(
       type: String,
       required: [true, 'Product name is required'],
       trim: true,
-      maxlength: [300, 'Product name cannot exceed 100 characters'],
+      maxlength: [300, 'Product name cannot exceed 300 characters'],
     },
     description: {
       type: String,
       required: [true, 'Product description is required'],
-      maxlength: [1500, 'Description cannot exceed 1000 characters'],
+      maxlength: [1500, 'Description cannot exceed 1500 characters'],
     },
     price: {
       type: Number,
@@ -138,7 +116,7 @@ const productSchema = new Schema<IProduct>(
     averageRating: { type: Number, default: 0 },
     ratingsCount: { type: Number, default: 0 },
 
-    // 🆕 new fields
+    // optional details
     sku: { type: String, trim: true, index: true },
     color: { type: String, trim: true },
     ports: { type: Number, min: 0, default: 0 },
@@ -146,13 +124,10 @@ const productSchema = new Schema<IProduct>(
     warrantyType: { type: String, enum: ['Manufacturer', 'Seller', 'No Warranty'], default: 'No Warranty' },
     manufacturingDetails: { type: Schema.Types.Mixed, default: {} },
 
-    // 🆕 admin-only
+    // admin-only (hidden from default queries)
     gst: { type: Number, min: 0, max: 100, select: false },
     hsnCode: { type: String, trim: true, select: false },
     netWeight: { type: Number, min: 0, select: false },
-
-    // 🆕 per-product MOQ override (null = use category rule)
-    minOrderQtyOverride: { type: Number, min: 1, default: null },
   },
   {
     timestamps: true,
@@ -178,7 +153,10 @@ const productSchema = new Schema<IProduct>(
 );
 
 /** indexes */
-productSchema.index({ name: 'text', description: 'text', tags: 'text', category: 'text' });
+// Single consolidated text index for search
+productSchema.index({ name: 'text', description: 'text', tags: 'text', category: 'text', brand: 'text' });
+
+// Useful compound/sort indexes
 productSchema.index({ category: 1, price: 1 });
 productSchema.index({ rating: -1 });
 productSchema.index({ isActive: 1, inStock: 1, status: 1 });
@@ -190,20 +168,5 @@ productSchema.pre('save', function (next) {
   this.inStock = (this.stockQuantity || 0) > 0;
   next();
 });
-productSchema.index({ name: 'text', category: 'text', brand: 'text' });
-
-/** 🆕 virtual: effective MOQ visible to API & client */
-productSchema.virtual('minOrderQty').get(function (this: IProduct) {
-  if (typeof this.minOrderQtyOverride === 'number' && this.minOrderQtyOverride >= 1) {
-    return this.minOrderQtyOverride;
-  }
-  const cat = this.category;
-  return CATEGORY_MOQ[cat] ?? 1;
-});
-
-/** 🆕 helper static for controllers/services (optional) */
-export function getMinOrderQtyForCategory(cat: string): number {
-  return CATEGORY_MOQ[cat] ?? 1;
-}
 
 export default mongoose.model<IProduct>('Product', productSchema);
