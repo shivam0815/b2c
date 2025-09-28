@@ -209,6 +209,74 @@ function normalizeProductsResponse(data: any): ProductsResponse {
   };
 }
 
+// --- category/brand normalization helpers ---
+const slugify = (s: string) =>
+  (s || '')
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)+/g, '');
+
+const unslug = (s?: string) => (s ? s.replace(/-/g, ' ').trim() : '');
+
+// Canonical map: slug/aliases -> exact display name used in DB
+const CATEGORY_ALIAS_TO_NAME: Record<string, string> = {
+  // exact slugs
+  'tws': 'TWS',
+  'bluetooth-neckband': 'Bluetooth Neckbands',
+  'bluetooth-neckbands': 'Bluetooth Neckbands',
+  'data-cable': 'Data Cables',
+  'data-cables': 'Data Cables',
+  'mobile-charger': 'Mobile Chargers',
+  'mobile-chargers': 'Mobile Chargers',
+  'car-charger': 'Car Chargers',
+  'car-chargers': 'Car Chargers',
+  'bluetooth-speaker': 'Bluetooth Speakers',
+  'bluetooth-speakers': 'Bluetooth Speakers',
+  'power-bank': 'Power Banks',
+  'power-banks': 'Power Banks',
+  'integrated-circuits-chips': 'Integrated Circuits & Chips',
+  'mobile-repairing-tools': 'Mobile Repairing Tools',
+  'electronics': 'Electronics',
+  'accessories': 'Accessories',
+  'others': 'Others',
+
+  // friendly shortcuts / plurals
+  'chargers': 'Mobile Chargers',     // << your case
+  'neckband': 'Bluetooth Neckbands',
+  'neckbands': 'Bluetooth Neckbands',
+  'cables': 'Data Cables',
+  'speakers': 'Bluetooth Speakers',
+  'banks': 'Power Banks',
+  'ICs': 'Integrated Circuits & Chips',
+
+};
+
+// Normalize filters coming from UI/URL
+const normalizeFiltersForApi = (f: ProductFilters = {}): ProductFilters => {
+  const out: ProductFilters = { ...f };
+
+  // Map `q` -> `search` if someone set it on the UI side
+  const anyF = f as any;
+  if (anyF.q && !out.search) out.search = anyF.q;
+  delete (out as any).q;
+
+  // Category: accept slugs/aliases and return exact DB name
+  if (out.category) {
+    const slug = slugify(String(out.category));
+    out.category = CATEGORY_ALIAS_TO_NAME[slug] || String(out.category);
+  }
+
+  // Brand: if sluggy, unslug (backend likely stores plain words)
+  if (out.brand) {
+    const looksSlug = /-/.test(String(out.brand));
+    if (looksSlug) out.brand = unslug(String(out.brand));
+  }
+
+  return out;
+};
+
+
 /* ---------- tiny in-memory cache (per-tab) ---------- */
 const memCache = new Map<string, { data: ProductsResponse; ts: number }>();
 const MC_TTL = 15_000;
@@ -229,6 +297,7 @@ const MAX_LIMIT = 1000;
 export const productService = {
   async getProducts(filters: ProductFilters = {}, forceRefresh = false): Promise<ProductsResponse> {
     try {
+          const nf = normalizeFiltersForApi(filters);
       const params: Record<string, any> = {
         page: filters.page ?? 1,
         ...filters,

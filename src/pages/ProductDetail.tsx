@@ -254,9 +254,9 @@ const ProductDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<number>(0);
 
-  // initialize with 1
-  const [quantity, setQuantity] = useState<number>(1);
-  const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
+  // quantity (raw typing + committed value)
+  const [quantity, setQuantity] = useState<number>(1); // committed
+  const [rawQty, setRawQty] = useState<string>('1');   // user typing
 
   const { addToCart, isLoading } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
@@ -308,12 +308,33 @@ const ProductDetail: React.FC = () => {
     fetchProduct();
   }, [id]);
 
-  /* Ensure quantity respects 1..stock whenever product changes */
+  /* Clamp helper for qty */
+  const clampQty = (raw: unknown, max: number) => {
+    const n = typeof raw === 'number' ? raw : parseInt(String(raw ?? ''), 10);
+    if (!Number.isFinite(n) || n <= 0) return 1;
+    return Math.max(1, Math.min(max, n));
+  };
+
+  // Stock cap: 1..stock (fallback 99 if stock unknown). When out of stock → 0
+  const maxQty = (product as any)?.inStock
+    ? Math.max(1, Number((product as any).stockQuantity) || 99)
+    : 0;
+
+  // sync when product/maxQty changes
   useEffect(() => {
     if (!product) return;
-    const stockCap = Math.max(1, Number((product as any).stockQuantity ?? 99));
-    setQuantity((q) => Math.max(1, Math.min(stockCap, q || 1)));
-  }, [product]);
+    const init = clampQty(quantity, maxQty || 1);
+    setQuantity(init);
+    setRawQty(String(init));
+  }, [product, maxQty]);
+
+  // commit helper used by +/- / blur / enter / actions
+  const commitQty = (v: string | number) => {
+    const final = clampQty(v, maxQty || 1);
+    setQuantity(final);
+    setRawQty(String(final));
+    return final;
+  };
 
   /* Fetch rails after product is loaded */
   useEffect(() => {
@@ -356,16 +377,16 @@ const ProductDetail: React.FC = () => {
     }
   }, []);
 
+  const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
+
+  const { addToWishlist: addWish, removeFromWishlist: remWish } = { addToWishlist, removeFromWishlist };
+
   const handleAddToCart = async () => {
-    if (!product) return;
+    if (!product || !maxQty) return;
     try {
       const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) {
-        toast.error('Product ID not found');
-        return;
-      }
-      const stockCap = Math.max(1, Number((product as any).stockQuantity ?? 99));
-      const finalQty = Math.max(1, Math.min(stockCap, quantity));
+      if (!productId) { toast.error('Product ID not found'); return; }
+      const finalQty = commitQty(rawQty === '' ? 1 : rawQty); // commit before action
       await addToCart(productId, finalQty);
       toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
     } catch (err: any) {
@@ -374,36 +395,27 @@ const ProductDetail: React.FC = () => {
   };
 
   const handleBuyNow = async () => {
-    if (!product) return;
+    if (!product || !maxQty) return;
     try {
       const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) {
-        toast.error('Product ID not found');
-        return;
-      }
-      const stockCap = Math.max(1, Number((product as any).stockQuantity ?? 99));
-      const finalQty = Math.max(1, Math.min(stockCap, quantity));
+      if (!productId) { toast.error('Product ID not found'); return; }
+      const finalQty = commitQty(rawQty === '' ? 1 : rawQty); // commit before action
       await addToCart(productId, finalQty);
-      navigate('/checkout'); // go straight to checkout
+      navigate('/checkout');
     } catch (err: any) {
       toast.error(err?.message || 'Could not proceed to checkout');
     }
   };
 
-
-
   const handleWishlistToggle = async () => {
     if (!product) return;
     try {
       const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) {
-        toast.error('Product ID not found');
-        return;
-      }
+      if (!productId) { toast.error('Product ID not found'); return; }
       if (isInWishlist(productId)) {
-        await removeFromWishlist(productId);
+        await remWish(productId);
       } else {
-        await addToWishlist(productId);
+        await addWish(productId);
       }
     } catch (err: any) {
       toast.error(err.message || 'Wishlist operation failed');
@@ -493,9 +505,6 @@ const ProductDetail: React.FC = () => {
   const validImages: string[] = normalizedImages;
   const currentImage: string | undefined = validImages[selectedImage] || validImages[0];
   const hasMultipleImages = validImages.length > 1;
-
-  // Stock cap: 1..stock (fallback 99 if stock unknown)
-  const maxQty = Math.max(1, Number((product as any).stockQuantity ?? 99));
 
   /* -------------------------------- Render -------------------------------- */
   return (
@@ -591,38 +600,48 @@ const ProductDetail: React.FC = () => {
                 ) : null}
               </div>
 
-              {/* Quantity (B2C: 1..stock) */}
+              {/* Quantity (B2C: 1..stock) with raw typing */}
               {(product as any).inStock && (
                 <div className="flex items-center gap-3 sm:gap-4">
                   <label className="text-gray-700 text-sm sm:text-base font-medium">Qty</label>
                   <div className="flex items-center border border-gray-300 rounded-lg">
                     <button
-                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
-                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={() => commitQty((quantity || 1) - 1)}
                       disabled={quantity <= 1}
+                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       aria-label="Decrease quantity"
                     >
                       <Minus className="h-4 w-4" />
                     </button>
+
                     <input
                       type="number"
+                      inputMode="numeric"
                       min={1}
-                      max={maxQty}
-                      value={quantity}
+                      max={maxQty || 1}
+                      value={rawQty}
+                      placeholder="1"
                       onChange={(e) => {
-                        const raw = parseInt(e.target.value, 10);
-                        const next = Number.isFinite(raw) ? raw : 1;
-                        const clamped = Math.max(1, Math.min(maxQty, next));
-                        setQuantity(clamped);
+                        const v = e.target.value;
+                        if (v === '') { setRawQty(''); return; }              // allow empty while typing
+                        if (/^\d+$/.test(v)) {                               // digits only
+                          setRawQty(v);
+                          setQuantity(parseInt(v, 10));                      // live update (no clamp yet)
+                        }
                       }}
-                      onBlur={() => setQuantity(q => Math.max(1, Math.min(maxQty, q)))}
+                      onBlur={() => commitQty(rawQty === '' ? 1 : rawQty)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') { (e.currentTarget as HTMLInputElement).blur(); }
+                        if (e.key === 'Escape') { setRawQty(String(quantity)); }
+                      }}
                       className="w-14 sm:w-16 text-center text-sm sm:text-base border-0 focus:ring-0 focus:outline-none"
                       aria-label="Quantity"
                     />
+
                     <button
-                      onClick={() => setQuantity(q => Math.min(maxQty, q + 1))}
+                      onClick={() => commitQty((quantity || 1) + 1)}
+                      disabled={!maxQty || quantity >= maxQty}
                       className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={quantity >= maxQty}
                       aria-label="Increase quantity"
                     >
                       <Plus className="h-4 w-4" />
@@ -665,15 +684,15 @@ const ProductDetail: React.FC = () => {
                   <span>Buy Now</span>
                 </motion.button>
 
-                {/* icons row – always new line on mobile */}
-                <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
+                {/* Icons row — centered on mobile, left on desktop */}
+                <div className="col-span-2 flex items-center justify-center sm:justify-start gap-3 mt-1 sm:mt-0">
                   {/* Wishlist */}
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
                     onClick={handleWishlistToggle}
                     disabled={wishlistLoading}
-                    className={`w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border rounded-lg
+                    className={`w-10 h-10 sm:w-11 sm:h-11 inline-flex items-center justify-center p-0 border rounded-lg
                       ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50'}`}
                     title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
                     aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
@@ -685,15 +704,16 @@ const ProductDetail: React.FC = () => {
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    className="w-10 h-10 sm:w-11 sm:h-11 inline-flex items-center justify-center p-0 border border-gray-300 rounded-lg hover:bg-gray-50"
                     onClick={() => {
                       const url = window.location.href;
                       const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-                      if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
-                        navigator.clipboard.writeText(url);
-                        toast.success('Product link copied to clipboard!');
-                      });
-                      else {
+                      if ((navigator as any).share) {
+                        (navigator as any).share({ title: product.name, text, url }).catch(() => {
+                          navigator.clipboard.writeText(url);
+                          toast.success('Product link copied to clipboard!');
+                        });
+                      } else {
                         navigator.clipboard.writeText(url);
                         toast.success('Product link copied to clipboard!');
                       }
@@ -704,13 +724,12 @@ const ProductDetail: React.FC = () => {
                     <Share2 className="h-5 w-5" />
                   </motion.button>
 
-                  {/* WhatsApp */}
+                  {/* WhatsApp (always visible incl. mobile) */}
                   <a
                     href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50
-                               text-green-700 inline-flex items-center justify-center"
+                    className="w-10 h-10 sm:w-11 sm:h-11 inline-flex items-center justify-center p-0 border border-green-300 rounded-lg hover:bg-green-50 text-green-700"
                     title="Chat on WhatsApp"
                     aria-label="Chat on WhatsApp"
                   >

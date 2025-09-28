@@ -94,6 +94,7 @@ const Terms: React.FC = () => {
             <h2 id="orders">Orders, Acceptance & Cancellation</h2>
             <ul>
               <li>Your order is an offer to purchase. Acceptance occurs when we dispatch the items.</li>
+              <li>After the order dispatch in nakoda mobile have  not legal term to reach the order your location or not </li>
               <li>We may cancel/refuse orders due to stock limits, suspected fraud, pricing errors, or regulatory reasons.</li>
               <li>You can request cancellation before dispatch; post-dispatch, standard return rules apply.</li>
             </ul>

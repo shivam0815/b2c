@@ -546,9 +546,54 @@ const CheckoutPage: React.FC = () => {
               ))}
             </div>
 
-           
+            {/* Coupon */}
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-rose-600" />
+                  Apply Coupon
+                </div>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value)}
+                  className="flex-1 px-4 py-3 border-2 rounded-xl bg-gray-50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  placeholder="WELCOME10, SAVE50, FREESHIP, NKD150"
+                />
+                <button
+                  type="button"
+                  onClick={onApplyCoupon}
+                  className="px-4 py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
+                >
+                  Apply
+                </button>
+              </div>
+              {appliedCoupon && (
+                <div className="mt-2 text-sm text-green-700 flex items-center gap-1">
+                  <BadgePercent className="h-4 w-4" />
+                  {appliedCoupon.message}
+                </div>
+              )}
+            </div>
 
-            
+            {/* Gift wrap */}
+            <div className="mb-6">
+              <label className="inline-flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={giftWrap}
+                  onChange={(e) => setGiftWrap(e.target.checked)}
+                  className="h-4 w-4"
+                />
+                <span className="flex items-center gap-2">
+                  <Gift className="h-4 w-4 text-pink-600" />
+                  <span className="text-sm text-gray-800">
+                    Add gift wrap <span className="text-gray-500">({formatINR(GIFT_WRAP_FEE)})</span>
+                  </span>
+                </span>
+              </label>
+            </div>
 
             <div className="border-t border-gray-200 pt-6 space-y-2 sm:space-y-3 text-sm">
               <div className="flex justify-between">
@@ -632,8 +677,10 @@ const CheckoutPage: React.FC = () => {
                 )}
               </div>
 
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row gap-4">
+               
+
+              <div className="space-y-5 sm:space-y-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     field="fullName"
                     label="Full Name *"
@@ -641,25 +688,20 @@ const CheckoutPage: React.FC = () => {
                     onChange={(v) => handleAddr(setShipping)('fullName', v)}
                     placeholder="Enter your full name"
                     icon={User}
-                    half
                     errors={errors}
                   />
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     field="phoneNumber"
                     label="Phone Number *"
                     value={shipping.phoneNumber}
-                    onChange={(v) =>
-                      handleAddr(setShipping)('phoneNumber', v.replace(/\D/g, '').slice(0, 10))
-                    }
+                    onChange={(v) => handleAddr(setShipping)('phoneNumber', v.replace(/\D/g, '').slice(0, 10))}
                     placeholder="10-digit mobile number"
                     icon={Phone}
-                    half
                     errors={errors}
                   />
-
                   <Input
                     field="email"
                     label="Email Address *"
@@ -668,20 +710,20 @@ const CheckoutPage: React.FC = () => {
                     onChange={(v) => handleAddr(setShipping)('email', v)}
                     placeholder="Enter your email"
                     icon={Mail}
-                    half
                     errors={errors}
                   />
                 </div>
 
                 <Input
-                  field="addressLine1"
-                  label="Address Line 1 *"
+                  field="HouseNo and Floor"
+                  label="HouseNo and Floor *"
                   value={shipping.addressLine1}
                   onChange={(v) => handleAddr(setShipping)('addressLine1', v)}
                   placeholder="House no, Building, Street"
                   icon={MapPin}
                   errors={errors}
                 />
+                
 
                 <Input
                   field="landmark"
@@ -692,14 +734,13 @@ const CheckoutPage: React.FC = () => {
                   errors={errors}
                 />
 
-                <div className="flex flex-col sm:flex-row gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <Input
                     field="city"
                     label="City *"
                     value={shipping.city}
                     onChange={(v) => handleAddr(setShipping)('city', v)}
                     placeholder="Enter city"
-                    half
                     errors={errors}
                   />
                   <Input
@@ -708,7 +749,6 @@ const CheckoutPage: React.FC = () => {
                     value={shipping.state}
                     onChange={(v) => handleAddr(setShipping)('state', v)}
                     placeholder="Enter state"
-                    half
                     errors={errors}
                   />
                 </div>
@@ -718,15 +758,12 @@ const CheckoutPage: React.FC = () => {
                     field="pincode"
                     label="Pincode *"
                     value={shipping.pincode}
-                    onChange={(v) =>
-                      handleAddr(setShipping)('pincode', v.replace(/\D/g, '').slice(0, 6))
-                    }
+                    onChange={(v) => handleAddr(setShipping)('pincode', v.replace(/\D/g, '').slice(0, 6))}
                     placeholder="6-digit pincode"
                     errors={errors}
                   />
                 </div>
 
-                {/* Save address */}
                 <label className="inline-flex items-center gap-2">
                   <input
                     type="checkbox"
@@ -755,15 +792,15 @@ const CheckoutPage: React.FC = () => {
             {/* Billing form (if different) */}
             {!sameAsShipping && (
               <div className="mb-8">
-                <div className="flex items-center mb-6">
-                  <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center mr-3">
+                <div className="flex items-center mb-5 sm:mb-6">
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-amber-100 rounded-full flex items-center justify-center mr-3">
                     <MapPin className="h-5 w-5 text-amber-600" />
                   </div>
-                  <h2 className="text-xl font-bold text-gray-900">Billing Address</h2>
+                  <h2 className="text-lg sm:text-xl font-bold text-gray-900">Billing Address</h2>
                 </div>
 
-                <div className="space-y-6">
-                  <div className="flex flex-col sm:flex-row gap-4">
+                <div className="space-y-5 sm:space-y-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
                       field="billing_fullName"
                       label="Full Name *"
@@ -771,19 +808,15 @@ const CheckoutPage: React.FC = () => {
                       onChange={(v) => handleAddr(setBilling)('fullName', v)}
                       placeholder="Enter your full name"
                       icon={User}
-                      half
                       errors={errors}
                     />
                     <Input
                       field="billing_phoneNumber"
                       label="Phone Number *"
                       value={billing.phoneNumber}
-                      onChange={(v) =>
-                        handleAddr(setBilling)('phoneNumber', v.replace(/\D/g, '').slice(0, 10))
-                      }
+                      onChange={(v) => handleAddr(setBilling)('phoneNumber', v.replace(/\D/g, '').slice(0, 10))}
                       placeholder="10-digit mobile number"
                       icon={Phone}
-                      half
                       errors={errors}
                     />
                   </div>
@@ -800,8 +833,8 @@ const CheckoutPage: React.FC = () => {
                   />
 
                   <Input
-                    field="billing_addressLine1"
-                    label="Address Line 1 *"
+                    field="billing_HouseNo and Floor"
+                    label="HouseNo and Floor *"
                     value={billing.addressLine1}
                     onChange={(v) => handleAddr(setBilling)('addressLine1', v)}
                     placeholder="House no, Building, Street"
@@ -818,14 +851,13 @@ const CheckoutPage: React.FC = () => {
                     errors={errors}
                   />
 
-                  <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
                       field="billing_city"
                       label="City *"
                       value={billing.city}
                       onChange={(v) => handleAddr(setBilling)('city', v)}
                       placeholder="Enter city"
-                      half
                       errors={errors}
                     />
                     <Input
@@ -834,7 +866,6 @@ const CheckoutPage: React.FC = () => {
                       value={billing.state}
                       onChange={(v) => handleAddr(setBilling)('state', v)}
                       placeholder="Enter state"
-                      half
                       errors={errors}
                     />
                   </div>
@@ -844,9 +875,7 @@ const CheckoutPage: React.FC = () => {
                       field="billing_pincode"
                       label="Pincode *"
                       value={billing.pincode}
-                      onChange={(v) =>
-                        handleAddr(setBilling)('pincode', v.replace(/\D/g, '').slice(0, 6))
-                      }
+                      onChange={(v) => handleAddr(setBilling)('pincode', v.replace(/\D/g, '').slice(0, 6))}
                       placeholder="6-digit pincode"
                       errors={errors}
                     />
@@ -854,6 +883,7 @@ const CheckoutPage: React.FC = () => {
                 </div>
               </div>
             )}
+
 
             {/* Payment Method (Razorpay / COD only) */}
             <div className="border-t border-gray-200 pt-6 sm:pt-8">
