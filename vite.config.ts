@@ -17,7 +17,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000/', // your prod API
+        target: 'https://nakodamobile.com/', // your prod API
         changeOrigin: true,                 // makes the upstream see Host as nakodamobile.in
         secure: true,                       // keep true for valid HTTPS
         rewrite: (path) => path,            // keep /api prefix as-is

@@ -19,7 +19,7 @@ import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../util
 import { useTranslation } from 'react-i18next';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.com/api';
 
 type Product = {
   _id: string;

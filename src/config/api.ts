@@ -13,7 +13,7 @@ const API_BASE_URL = norm(import.meta.env.VITE_API_URL) || "/api";
    Axios instance
 ============================================================================ */
 const api = axios.create({
-  baseURL: API_BASE_URL, // e.g. "https://nakodamobile.in/api" or "/api"
+  baseURL: API_BASE_URL, // e.g. "https://nakodamobile.com/api" or "/api"
   withCredentials: true,
   timeout: 20000,
 });
