@@ -78,8 +78,8 @@ const devOrigins = [
 ];
 const runtimeFrontend = process.env.FRONTEND_URL?.trim();
 const prodOrigins = [
-  'https://nakodamobile.in',
-  'https://www.nakodamobile.in',
+  'https://nakodamobile.com',
+  'https://www.nakodamobile.com',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:5000',
@@ -127,7 +127,7 @@ if (isProd) {
   app.use((_req, res, next) => {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     next();
-  });
+  });   
 }
 
 app.use(compression());
@@ -597,7 +597,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // Start
 server.listen(PORT, '0.0.0.0', () => {
-  const base = isProd ? 'https://nakodamobile.in' : `http://localhost:${PORT}`;
+  const base = isProd ? 'https://nakodamobile.com' : `http://localhost:${PORT}`;
 
   console.log('🚀 ================================');
   console.log('🚀 Nakoda Mobile API Server Started');

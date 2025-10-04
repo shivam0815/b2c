@@ -90,7 +90,7 @@ const Login: React.FC = () => {
       return;
     }
     setSocialLoading(provider);
-    const apiBase = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.com/api';
+    const apiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
     const backendOrigin = apiBase.replace(/\/?api\/?$/, '');
     window.location.href = `${backendOrigin}/api/auth/${provider}`;
   };
@@ -129,7 +129,7 @@ const Login: React.FC = () => {
     }
     try {
       setOtpVerifying(true);
-      const res: any = await verifyPhoneOtp(otpSentTo || normalizedPhone, otp); // POST /auth/phone/verify
+      const res = await verifyPhoneOtp(otpSentTo || normalizedPhone, otp); // POST /auth/phone/verify
 
       // If your backend returns token/user, store them now
       const token = res?.token || res?.sessionToken;

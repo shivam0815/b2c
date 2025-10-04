@@ -15,7 +15,7 @@ const Privacy: React.FC = () => {
           '@context': 'https://schema.org',
           '@type': 'WebPage',
           name: 'Privacy Policy',
-          url: 'https://nakodamobile.in/privacy'
+          url: 'https://nakodamobile.com/privacy'
         }}
       />
 
