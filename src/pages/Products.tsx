@@ -34,7 +34,10 @@ const CATEGORY_ALIAS_TO_NAME: Record<string, string> = {
   'power-bank': 'Power Banks',
   'power-banks': 'Power Banks',
   'ICs': 'Integrated Circuits & Chips',
+  'Mobile ICs': 'Mobile ICs',
   'mobile-repairing-tools': 'Mobile Repairing Tools',
+    'mobile ics': 'Mobile ICs',              // 🆕 space-separated
+  'mobile-ics': 'Mobile ICs',
   
   electronics: 'Electronics',
   accessories: 'Accessories',
@@ -54,6 +57,13 @@ const NAME_TO_SLUG: Record<string, string> = {
   'Mobile Repairing Tools': 'mobile-repairing-tools',
   'Electronics': 'electronics',
   'Accessories': 'accessories',
+  'Mobile ICs': 'Mobile ICs',
+  'Mobile Accessories': 'Mobile Accessories',
+   'mobile ics': 'Mobile ICs',              // 🆕 space-separated
+  'mobile-ics': 'Mobile ICs',
+
+
+
   'Others': 'others',
 };
 
@@ -91,7 +101,9 @@ const Products: React.FC = () => {
     'Bluetooth Speakers',
     'Power Banks',
     'Others',
-    'ICs'
+    'ICs',
+    'Mobile ICs',
+    'Mobile accessories',
   ]);
 
   /* ---------- TWO-WAY SYNC: URL -> dropdown ---------- */
@@ -256,7 +268,7 @@ const Products: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <SEO
         title={normalizedCategoryForApi ? `${normalizedCategoryForApi} — Shop Products` : 'Shop Products'}
-        description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
+        description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools,Bluetooth Speakers."
         canonicalPath="/products"
         jsonLd={{
           '@context': 'https://schema.org',

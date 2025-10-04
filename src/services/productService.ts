@@ -239,6 +239,8 @@ const CATEGORY_ALIAS_TO_NAME: Record<string, string> = {
   'mobile-repairing-tools': 'Mobile Repairing Tools',
   'electronics': 'Electronics',
   'accessories': 'Accessories',
+  'Mobile ICs': 'Mobile ICs',
+  'Mobile Accessories': 'Mobile Accessories',
   'others': 'Others',
 
   // friendly shortcuts / plurals

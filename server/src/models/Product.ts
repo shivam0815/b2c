@@ -105,7 +105,9 @@ const productSchema = new Schema<IProduct, IProductModel>(
           'Bluetooth Speakers',
           'Power Banks',
           'Others',
-          'ICs'
+          'ICs',
+          'Mobile Accessories',
+          'Mobile ICs'
         ],
         message: '{VALUE} is not a valid category',
       },

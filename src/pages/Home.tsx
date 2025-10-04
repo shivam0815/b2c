@@ -4,7 +4,8 @@ import { motion } from 'framer-motion';
 import {
   ArrowRight, Star, ShoppingBag, Users, Award,
   Shield, Truck, Headphones, ChevronLeft, ChevronRight, Quote,
-  Instagram, Twitter, Facebook, Sparkles, Banknote, BadgePercent, BadgeCheck
+  Instagram, Twitter, Facebook, Sparkles, Banknote, BadgePercent, BadgeCheck,
+  Smartphone, Cpu, Wrench
 } from 'lucide-react';
 
 import HeroSlider from '../components/Layout/HeroSlider';
@@ -77,23 +78,33 @@ const Home: React.FC = () => {
   const [subscribed, setSubscribed] = useState(false);
   const [company, setCompany] = useState(''); // honeypot
 
-  // Products
+  // Products - Updated with new categories
   const [hot, setHot] = useState<Product[]>([]);
   const [newArrivals, setNewArrivals] = useState<Product[]>([]);
   const [popular, setPopular] = useState<Product[]>([]);
+  const [mobileAccessories, setMobileAccessories] = useState<Product[]>([]);
+  const [mobileIC, setMobileIC] = useState<Product[]>([]);
+  const [mobileRepairTools, setMobileRepairTools] = useState<Product[]>([]);
+  
+  // Loading states
   const [loadingHot, setLoadingHot] = useState(false);
   const [loadingNew, setLoadingNew] = useState(false);
   const [loadingPopular, setLoadingPopular] = useState(false);
+  const [loadingMobileAccessories, setLoadingMobileAccessories] = useState(false);
+  const [loadingMobileIC, setLoadingMobileIC] = useState(false);
+  const [loadingMobileRepairTools, setLoadingMobileRepairTools] = useState(false);
 
-  const categories = [
-    { id: 'bluetooth-neckband', name: 'Bluetooth Neckband', icon: '🎧', gradient: 'from-blue-500 to-purple-500', description: 'Premium wireless neckbands', color: 'bg-blue-500' },
-    { id: 'true-wireless-stereo', name: 'True Wireless Stereo', icon: '🎵', gradient: 'from-purple-500 to-pink-500', description: 'High-quality TWS earbuds', color: 'bg-purple-500' },
-    { id: 'data-cable', name: 'Data Cable', icon: '🔌', gradient: 'from-green-500 to-teal-500', description: 'Fast charging & sync cables', color: 'bg-green-500' },
-    { id: 'Wall-charger', name: 'Wall Charger', icon: '⚡', gradient: 'from-yellow-500 to-orange-500', description: 'Quick & safe charging solutions', color: 'bg-yellow-500' },
-    { id: 'car-charger', name: 'Car Charger', icon: '🚗', gradient: 'from-gray-600 to-gray-800', description: 'On-the-go charging solutions', color: 'bg-gray-600' },
-    { id: 'mobile-ic', name: 'Mobile IC', icon: '🔧', gradient: 'from-red-500 to-rose-500', description: 'Integrated circuits & Semi-Conductor', color: 'bg-red-500' },
-    { id: 'mobile-repairing-tools', name: 'Mobile Repairing Tools', icon: '🛠️', gradient: 'from-indigo-500 to-blue-500', description: 'Professional repair toolkit', color: 'bg-indigo-500' },
-  ];
+const categories = [
+  { id: 'Bluetooth Neckbands', name: 'Bluetooth Neckband', icon: '🎧', gradient: 'from-blue-500 to-purple-500', description: 'Premium wireless neckbands', color: 'bg-blue-500' },
+  { id: 'TWS', name: 'True Wireless Stereo', icon: '🎵', gradient: 'from-purple-500 to-pink-500', description: 'High-quality TWS earbuds', color: 'bg-purple-500' },
+  { id: 'Data Cables', name: 'Data Cable', icon: '🔌', gradient: 'from-green-500 to-teal-500', description: 'Fast charging & sync cables', color: 'bg-green-500' },
+  { id: 'Mobile Chargers', name: 'Wall Charger', icon: '⚡', gradient: 'from-yellow-500 to-orange-500', description: 'Quick & safe charging solutions', color: 'bg-yellow-500' },
+  { id: 'Car Chargers', name: 'Car Charger', icon: '🚗', gradient: 'from-gray-600 to-gray-800', description: 'On-the-go charging solutions', color: 'bg-gray-600' },
+  { id: 'Mobile ICs', name: 'Mobile IC', icon: '🔧', gradient: 'from-red-500 to-rose-500', description: 'Integrated circuits & semiconductors', color: 'bg-red-500' },
+  { id: 'Mobile Repairing Tools', name: 'Mobile Repairing Tools', icon: '🛠️', gradient: 'from-indigo-500 to-blue-500', description: 'Professional repair toolkit', color: 'bg-indigo-500' },
+];
+
+
 
   const testimonials = [
     { name: "Saransh", role: "Tech Enthusiast", content: "Amazing quality products! The TWS earbuds I bought exceeded my expectations. Crystal clear sound and perfect fit.", rating: 5, image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face" },
@@ -108,13 +119,14 @@ const Home: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const handleCategoryClick = (categoryId: string) => navigate(`/products?category=${categoryId}`);
+  const handleCategoryClick = (categoryId: string) => navigate(`/products?category=${encodeURIComponent(categoryId)}`);
+
 
   // Pick primary URL once for a product (S3 key or full URL)
   const pickPrimaryImage = (p: Product) =>
     resolveImageUrl(p.imageUrl) ?? getFirstImageUrl(p.images);
 
-  // Fetch products
+  // Fetch products - Updated with new category fetches
   useEffect(() => {
     const loadHot = async () => {
       try {
@@ -125,6 +137,7 @@ const Home: React.FC = () => {
         setHot(data.products || data.items || []);
       } finally { setLoadingHot(false); }
     };
+    
     const loadNew = async () => {
       try {
         setLoadingNew(true);
@@ -134,6 +147,7 @@ const Home: React.FC = () => {
         setNewArrivals(data.products || data.items || []);
       } finally { setLoadingNew(false); }
     };
+    
     const loadPopular = async () => {
       try {
         setLoadingPopular(true);
@@ -142,7 +156,50 @@ const Home: React.FC = () => {
         setPopular(res.ok ? (data.products || data.items || []) : []);
       } finally { setLoadingPopular(false); }
     };
-    loadHot(); loadNew(); loadPopular();
+    
+    // Load Mobile Accessories (general accessories categories combined)
+  // Load Mobile Accessories (updated with correct database category names)
+const loadMobileAccessories = async () => {
+  try {
+    setLoadingMobileAccessories(true);
+    const accessoryCategories = ['Bluetooth Neckbands', 'TWS', 'Data Cables', 'Mobile Chargers', 'Car Chargers'];
+    const categoryQuery = accessoryCategories.map(cat => `category=${encodeURIComponent(cat)}`).join('&');
+    const res = await fetch(`${API_BASE}/products?${categoryQuery}&limit=24&status=active`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || 'Failed to load mobile accessories');
+    setMobileAccessories(data.products || data.items || []);
+  } finally { setLoadingMobileAccessories(false); }
+};
+
+// Load Mobile ICs (corrected category name)
+const loadMobileIC = async () => {
+  try {
+    setLoadingMobileIC(true);
+    const res = await fetch(`${API_BASE}/products?category=${encodeURIComponent('Mobile ICs')}&limit=20&status=active`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || 'Failed to load mobile IC products');
+    setMobileIC(data.products || data.items || []);
+  } finally { setLoadingMobileIC(false); }
+};
+
+// Load Mobile Repairing Tools (exact database name)
+const loadMobileRepairTools = async () => {
+  try {
+    setLoadingMobileRepairTools(true);
+    const res = await fetch(`${API_BASE}/products?category=${encodeURIComponent('Mobile Repairing Tools')}&limit=20&status=active`, { credentials: 'include' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || 'Failed to load mobile repair tools');
+    setMobileRepairTools(data.products || data.items || []);
+  } finally { setLoadingMobileRepairTools(false); }
+};
+
+    
+    loadHot(); 
+    loadNew(); 
+    loadPopular();
+    loadMobileAccessories();
+    loadMobileIC();
+    loadMobileRepairTools();
   }, []);
 
   // Derived sections
@@ -178,6 +235,9 @@ const Home: React.FC = () => {
     return { ref, scrollLeft: () => scrollBy(-600), scrollRight: () => scrollBy(600) };
   };
   const bestRef = useScroller();
+  const mobileAccessoriesRef = useScroller();
+  const mobileICRef = useScroller();
+  const mobileRepairRef = useScroller();
 
   // Newsletter
   const handleSubscribe = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -279,6 +339,19 @@ const Home: React.FC = () => {
     </div>
   );
 
+  const SkeletonScrollGrid: React.FC<{ count: number }> = ({ count }) => (
+    <div className="flex gap-4 overflow-x-auto">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4 w-[220px] shrink-0">
+          <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
+          <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
+          <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
+          <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="min-h-screen">
       <SEO
@@ -322,7 +395,7 @@ const Home: React.FC = () => {
       </section>
 
       {/* About + Photos */}
-       <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+      <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-10 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -405,8 +478,191 @@ const toImg = (u: string): string => {
         </div>
       </section>
 
-      {/* HOT DEALS */}
+      {/* MOBILE ACCESSORIES SECTION - NEW */}
       <section className="py-14 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center">
+                <Smartphone className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Mobile Accessories</h2>
+                <p className="text-gray-500">Essential accessories for every mobile user</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link to="/products?category=bluetooth-neckband&category=true-wireless-stereo&category=data-cable&category=Wall-charger&category=car-charger" className="text-indigo-600 hover:text-indigo-700 font-semibold mr-4">View all →</Link>
+              <button onClick={mobileAccessoriesRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button onClick={mobileAccessoriesRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {loadingMobileAccessories && mobileAccessories.length === 0 ? (
+            <SkeletonScrollGrid count={8} />
+          ) : mobileAccessories.length === 0 ? (
+            <div className="text-sm text-gray-600">Mobile accessories will appear here soon.</div>
+          ) : (
+            <div ref={mobileAccessoriesRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
+              {mobileAccessories.slice(0, 12).map((p) => (
+                <Card key={p._id} p={p} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* BEST SELLERS */}
+      <section className="py-14 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
+                <BadgeCheck className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Best Sellers</h2>
+                <p className="text-gray-500">Customer favorites this week</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link to="/products?sort=popular" className="text-indigo-600 hover:text-indigo-700 font-semibold mr-4">View all →</Link>
+              <button onClick={bestRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button onClick={bestRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {(loadingPopular && bestSellers.length === 0) || (loadingHot && hot.length === 0) ? (
+            <SkeletonScrollGrid count={8} />
+          ) : bestSellers.length === 0 ? (
+            <div className="text-sm text-gray-600">Popular items will appear here soon.</div>
+          ) : (
+            <div ref={bestRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
+              {bestSellers.map((p) => (
+                <Card key={p._id} p={p} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* MOBILE IC SECTION - NEW */}
+      <section className="py-14 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-red-50 border border-red-200 flex items-center justify-center">
+                <Cpu className="h-5 w-5 text-red-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Mobile IC</h2>
+                <p className="text-gray-500">Integrated circuits & semiconductors</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link to="/products?category=Mobile%20ICs" className="text-indigo-600 hover:text-indigo-700 font-semibold mr-4">View all →</Link>
+
+              <button onClick={mobileICRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button onClick={mobileICRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {loadingMobileIC && mobileIC.length === 0 ? (
+            <SkeletonScrollGrid count={8} />
+          ) : mobileIC.length === 0 ? (
+            <div className="text-sm text-gray-600">Mobile IC products will appear here soon.</div>
+          ) : (
+            <div ref={mobileICRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
+              {mobileIC.slice(0, 12).map((p) => (
+                <Card key={p._id} p={p} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* NEW ARRIVALS */}
+      <section className="py-14 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                <Banknote className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">New Arrivals</h2>
+                <p className="text-gray-500">Fresh drops — updated often</p>
+              </div>
+            </div>
+            <Link to="/products?sort=new" className="text-indigo-600 hover:text-indigo-700 font-semibold">View all →</Link>
+          </div>
+
+          {loadingNew && newArrivals.length === 0 ? (
+            <SkeletonGrid count={8} />
+          ) : newArrivals.length === 0 ? (
+            <div className="text-sm text-gray-600">New arrivals will appear here soon.</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {newArrivals.slice(0, 8).map((p) => (
+                <Card key={p._id} p={p} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* MOBILE REPAIRING TOOLS SECTION - NEW */}
+      <section className="py-14 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
+                <Wrench className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Mobile Repairing Tools</h2>
+                <p className="text-gray-500">Professional repair toolkit</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link to="/products?category=mobile-repairing-tools" className="text-indigo-600 hover:text-indigo-700 font-semibold mr-4">View all →</Link>
+              <button onClick={mobileRepairRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button onClick={mobileRepairRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {loadingMobileRepairTools && mobileRepairTools.length === 0 ? (
+            <SkeletonScrollGrid count={8} />
+          ) : mobileRepairTools.length === 0 ? (
+            <div className="text-sm text-gray-600">Mobile repairing tools will appear here soon.</div>
+          ) : (
+            <div ref={mobileRepairRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
+              {mobileRepairTools.slice(0, 12).map((p) => (
+                <Card key={p._id} p={p} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* HOT DEALS */}
+      <section className="py-14 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -432,7 +688,9 @@ const toImg = (u: string): string => {
           )}
         </div>
       </section>
-       <section className="py-16 bg-white">
+
+      {/* Shop by Category */}
+      <section className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Shop by Category</h2>
@@ -484,84 +742,6 @@ const toImg = (u: string): string => {
         </div>
       </section>
 
-
-      {/* BEST SELLERS */}
-      <section className="py-14 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
-                <BadgeCheck className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Best Sellers</h2>
-                <p className="text-gray-500">Customer favorites this week</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={bestRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button onClick={bestRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {(loadingPopular && bestSellers.length === 0) || (loadingHot && hot.length === 0) ? (
-            <div className="flex gap-4 overflow-x-auto">
-              {/* compact skeletons */}
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4 w-[220px] shrink-0">
-                  <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
-                  <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
-                  <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
-                  <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : bestSellers.length === 0 ? (
-            <div className="text-sm text-gray-600">Popular items will appear here soon.</div>
-          ) : (
-            <div ref={bestRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
-              {bestSellers.map((p) => (
-                <Card key={p._id} p={p} compact />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* NEW ARRIVALS */}
-      <section className="py-14 bg-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-                <Banknote className="h-5 w-5 text-emerald-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">New Arrivals</h2>
-                <p className="text-gray-500">Fresh drops — updated often</p>
-              </div>
-            </div>
-            <Link to="/products?sort=new" className="text-indigo-600 hover:text-indigo-700 font-semibold">View all →</Link>
-          </div>
-
-          {loadingNew && newArrivals.length === 0 ? (
-            <SkeletonGrid count={8} />
-          ) : newArrivals.length === 0 ? (
-            <div className="text-sm text-gray-600">New arrivals will appear here soon.</div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {newArrivals.slice(0, 8).map((p) => (
-                <Card key={p._id} p={p} />
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
       {/* Secondary promos / banners */}
       <PromoSlider />
 
@@ -592,7 +772,6 @@ const toImg = (u: string): string => {
         </div>
       </section>
 
-      
       {/* Testimonials */}
       <section className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -753,4 +932,4 @@ const toImg = (u: string): string => {
   );
 };
 
-export default Home;  
+export default Home;

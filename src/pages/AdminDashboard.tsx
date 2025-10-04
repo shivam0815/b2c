@@ -249,7 +249,7 @@ const InventoryManagement = memo<{
 
   const categories = [
     'TWS', 'Bluetooth Neckbands', 'Data Cables',
-    'Mobile Chargers', 'Integrated Circuits & Chips', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','Others'
+    'Mobile Chargers', 'Integrated Circuits & Chips', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','Mobile ICs','Others'
   ];
 
   const fetchProducts = useCallback(async () => {
@@ -1106,6 +1106,8 @@ const ProductManagement = memo<{
                   <option value="Car Chargers">Car Charger</option>
                   <option value="Bluetooth Speakers">Bluetooth Speaker</option>
                   <option value="Power Banks">Power Bank</option>
+                  <option value="Mobile ICs">Mobile ICs</option>
+
                   <option value="Others">Other</option>
                 </select>
               </div>
